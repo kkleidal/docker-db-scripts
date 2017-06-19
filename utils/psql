@@ -1,0 +1,23 @@
+#!/bin/bash
+
+usage() {
+  echo "Usage: $0 container_name [psql args]..." >&2
+  echo "  This is for users who are familiar with the psql command." >&2
+  echo "    Others should use the shell/restore commands." >&2
+  echo "  Example: $0 hknsystem_underground-guide3-db_1 -U postgres postgres" >&2
+}
+
+CONTAINER=$1
+if [ -z "$CONTAINER" ]; then
+  usage
+  exit 1
+fi
+
+IMAGE=$(docker inspect --format='{{.Image}}' $CONTAINER || usage || exit 1)
+TTY=""
+if [ -t 0 ]; then
+  TTY="-t"
+fi
+docker run -i $TTY --rm --link $CONTAINER:postgres \
+                    $IMAGE \
+                    bash -c "cd /opt && psql -h postgres ${*:2}" || usage || exit 1

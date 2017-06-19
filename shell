@@ -1,0 +1,66 @@
+#!/bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+usage() {
+  echo "Usage: $0 [OPTIONS]... CONTAINER" >&2
+  echo "  Opens a shell on the database server running in CONTAINER." >&2
+  echo "  This works with either postgres or mongo." >&2
+  echo "  Options:" >&2
+  echo "    -h,--help: print this documentation" >&2
+  echo "    -U,--user: postgres user (defaults to postgres)" >&2
+  echo "    --db: database (defaults to postgres, if postgres is used; test, if mongo is used)" >&2
+  echo "  Example: $0 hknsystem_underground-guide3-db_1" >&2
+}
+
+PG_USER=postgres
+PG_DB=postgres
+MONGO_DB="test"
+
+while [[ $# -gt 0 ]]
+do
+  key="$1"
+
+  case $key in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --db)
+      PG_DB="$2"
+      MONGO_DB="$2"
+      shift # past argument
+      ;;
+    -U|--user)
+      PG_USER="$2"
+      shift # past argument
+      ;;
+    *)
+      CONTAINER="$1"
+      ;;
+  esac
+  shift # past argument or value
+done
+
+if [ -z "$CONTAINER" ]; then
+  usage
+  exit 1
+fi
+
+IMAGE=$(docker inspect --format='{{.Image}}' $CONTAINER || usage || exit 1)
+IMAGE_NAME=$(docker inspect --format='{{.Config.Image}}' $CONTAINER || usage || exit 1)
+
+TTY=""
+if [ -t 0 ]; then
+  TTY="-t"
+fi
+
+if [[ $IMAGE_NAME =~ mongo.* ]]; then
+  CMD="docker run -i $TTY --rm --link $CONTAINER:mongo $IMAGE sh -c 'exec mongo \"mongo/$MONGO_DB\"'"
+elif [[ $IMAGE_NAME =~ postgres.* ]]; then
+  CMD="$DIR/utils/psql $CONTAINER -U $PG_USER $PG_DB"
+else
+  echo "Unsupported database." >&2
+  exit 1
+fi
+bash -c "$CMD" || (echo "Failed.">&2 && usage; exit 1)

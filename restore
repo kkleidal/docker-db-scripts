@@ -1,0 +1,93 @@
+#!/bin/bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+usage() {
+  echo "Usage: $0 [OPTIONS]... CONTAINER" >&2
+  echo "  Restores backup to database server running in CONTAINER." >&2
+  echo "  This works with either postgres or mongo." >&2
+  echo "  Options:" >&2
+  echo "    -h,--help: print this documentation" >&2
+  echo "    -f,--file: restore from file (restores from stdin by default)" >&2
+  echo "    -z,--compress: input is gzipped" >&2
+  echo "    -U,--user: postgres user (defaults to postgres)" >&2
+  echo "    --db: database (defaults to postgres, if postgres is used; all databases, if mongo is used)" >&2
+  echo "    -v: verbose output" >&2
+  echo "  Example: $0 -z -f backup.sql.gz hknsystem_underground-guide3-db_1" >&2
+}
+
+PG_USER=postgres
+PG_DB=postgres
+
+while [[ $# -gt 0 ]]
+do
+  key="$1"
+
+  case $key in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -f|--file)
+      INFILE="$2"
+      shift # past argument
+      ;;
+    -z|--compress)
+      COMPRESS=1
+      ;;
+    --db)
+      PG_DB="$2"
+      MONGO_DB="$2"
+      shift # past argument
+      ;;
+    -U|--user)
+      PG_USER="$2"
+      shift # past argument
+      ;;
+    -v|--verbose)
+      VERBOSE=1
+      ;;
+    *)
+      CONTAINER="$1"
+      ;;
+  esac
+  shift # past argument or value
+done
+
+if [ -z "$CONTAINER" ]; then
+  usage
+  exit 1
+fi
+
+COMPRESS_ARG=""
+if [ -n "$COMPRESS" ]; then
+  COMPRESS_ARG="gzip -d |"
+fi
+
+INFILE_ARG=""
+if [ -n "$INFILE" ]; then
+  INFILE_ARG="cat $INFILE |"
+fi
+
+IMAGE=$(docker inspect --format='{{.Image}}' $CONTAINER || usage || exit 1)
+IMAGE_NAME=$(docker inspect --format='{{.Config.Image}}' $CONTAINER || usage || exit 1)
+
+if [[ $IMAGE_NAME =~ mongo.* ]]; then
+  if [ -n "$MONGO_DB" ]; then
+    DB_ARG="--db $MONGO_DB"
+  else
+    echo "Error: You MUST specify a --db argument for mongo containers." >&2
+    usage
+    exit 1
+  fi
+  DB_CMD="docker run -i $TTY --rm --link $CONTAINER:mongo $IMAGE bash -c 'tar xf - -C / && mongorestore --host mongo --drop $DB_ARG /opt/backup'"
+elif [[ $IMAGE_NAME =~ postgres.* ]]; then
+  DB_CMD="$DIR/utils/psql $CONTAINER -U $PG_USER $PG_DB"
+else
+  echo "Unsupported database." >&2
+  exit 1
+fi
+CMD="$INFILE_ARG $COMPRESS_ARG $DB_CMD"
+
+[ -n "$VERBOSE" ] && echo $CMD >&2
+bash -c "$CMD" || (echo "Failed.">&2 && usage; exit 1)

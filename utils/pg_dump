@@ -1,0 +1,19 @@
+#!/bin/bash
+
+usage() {
+  echo "Usage: $0 container_name [pg_dump args]..." >&2
+  echo "  This is for users who are familiar with the pg_dump command." >&2
+  echo "    Others should use the backup command." >&2
+  echo "  Example: $0 hknsystem_underground-guide3-db_1 --clean -U postgres postgres" >&2
+}
+
+CONTAINER=$1
+if [ -z "$CONTAINER" ]; then
+  usage
+  exit 1
+fi
+
+IMAGE=$(docker inspect --format='{{.Image}}' $CONTAINER || usage || exit 1)
+docker run -it --rm --link $CONTAINER:postgres \
+                    $IMAGE \
+                    bash -c "cd /opt && pg_dump -h postgres ${*:2}" || usage || exit 1
